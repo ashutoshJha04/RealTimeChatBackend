@@ -14,6 +14,9 @@ app.use('/api/auth',AuthRoutes);
 app.use('/api/messages',MessageRoutes);
 app.use("/uploads/images",express.static("uploads/images"))
 
+
+
+
 const server = app.listen(process.env.PORT,()=>{
     console.log(`server listening on port ${process.env.PORT}`);
 })

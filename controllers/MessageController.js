@@ -1,3 +1,4 @@
+import { escape } from "querystring";
 import getPrismaInstance from "../utils/PrismaClient.js";
 import {renameSync} from "fs";
 export const addMessage = async(req,res,next)=>{
@@ -101,3 +102,104 @@ try {
     next(error);
 }
 }
+
+export const getinitialcontacts = async(req,res,next)=>{
+    try {
+        const userId = parseInt(req.params.from);
+        const prisma = getPrismaInstance();
+        const user = await prisma.user.findUnique({
+            where:{id:userId},
+            include:{
+                sentMessages:{
+                    include:{
+                        reciever:true,
+                        sender:true
+                    },
+                    orderBy:{
+                        createdAt:"desc",
+                    },
+                },
+                receivedMessages:{
+                    include:{
+                        reciever:true,
+                        sender:true
+                    },
+                    orderBy:{
+                        createdAt:"desc",
+                    },
+                },
+            }
+        });
+        const messages = [...user.sentMessages,...user.receivedMessages];
+        messages.sort((a,b)=> b.createdAt.getTime()-a.createdAt.getTime());
+        const Users = new Map();
+        const messageStatusChange = [];
+
+        messages.forEach((msg)=>{
+            const isSender = msg.senderId === userId;
+            const calculatedId = isSender ? msg.recieverId : msg.senderId;
+            if(msg.messageStatus === "sent"){
+                messageStatusChange.push(msg.id);
+            }
+            if(!Users.get(calculatedId)){ 
+
+                const {
+                    id,
+                    type,
+                    message,
+                    messageStatus,
+                    createdAt,
+                    senderId,
+                    recieverId
+                } = msg;
+                let user = {
+                    messageId:id,
+                    type,
+                    message,
+                    messageStatus,
+                    createdAt,
+                    senderId,
+                    recieverId
+                };
+                if(isSender){
+                    user={
+                        ...user,...msg.reciever,totalunreadmsg:0
+                    }
+                }
+                else{
+                    user = {
+                        ...user,
+                        ...msg.sender,
+                        totalunreadmsg:messageStatus != "read" ? 1 : 0,
+                    }
+                }
+                Users.set(calculatedId, {...user});
+            }else if(msg.messageStatus != "read" && !isSender){
+                const user = Users.get(calculatedId);
+                Users.set(calculatedId,{
+                    ...user,
+                    totalunreadmsg:user.totalunreadmsg + 1,
+                })
+            }
+
+        });
+
+        if(messageStatusChange.length){
+            await prisma.messages.updateMany({
+                where:{
+                    id:{in:messageStatusChange}
+                },data:{
+                    messageStatus:"delivered",
+                }
+            })
+        }
+
+        return res.status(200).json({
+            Users:Array.from(Users.values()),
+            onlineUsers:Array.from(onlineUsers.keys())
+        })
+
+    } catch (error) {
+        next(error);
+    }
+};
